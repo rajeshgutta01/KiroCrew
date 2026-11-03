@@ -942,9 +942,16 @@ class WorkspaceService:
         hooks); this covers the rest, and hands the status back the moment the
         bound session runs again or nothing runs.
         """
+        from kiro_crew.slack.code_channels import status as channel_status
+
         bound_running = now.get(record.session_key, False)
         workers = any(run for k, run in now.items() if k != record.session_key)
         key = record.key
+        if not bound_running and channel_status.held(record.channel_id):
+            # The agent asked the channel's people and waits on them: its workers
+            # neither replace nor clear that, only its next turn does.
+            self._working.discard(key)
+            return
         want = "processing" if workers and not bound_running else ""
         if want and key not in self._working:
             if await _set_status(record.channel_id, "processing"):
