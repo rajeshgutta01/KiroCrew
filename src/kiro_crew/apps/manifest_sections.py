@@ -580,6 +580,10 @@ class Permissions:
     #: May raise a ``crewmate.import`` owner card through ``ctx.crewmate``. The
     #: card creates nothing until the owner presses it.
     proposeCrewmate: bool = False  # noqa: N815
+    #: May batch-embed text through ``ctx.embed.embed_batch``. Declared because a
+    #: batch queues many inferences on the one shared model, so "which apps can
+    #: load the host's embedder" must be answerable from the manifest.
+    embeddings: bool = False
     # WS cross-app visibility opt-in: app names (or ["*"]) allowed to use
     # slots:app:<this-app> / subagent:app:<this-app> declarations to observe
     # this app's slots and subagents. Empty list = no cross-app visibility.
@@ -609,6 +613,8 @@ class Permissions:
             d["jobs"] = True
         if self.proposeCrewmate:
             d["proposeCrewmate"] = True
+        if self.embeddings:
+            d["embeddings"] = True
         if self.exposeToApps:
             d["exposeToApps"] = self.exposeToApps
         return d
@@ -638,6 +644,7 @@ class Permissions:
             spawn=data.get("spawn") is True,
             jobs=data.get("jobs") is True,
             proposeCrewmate=data.get("proposeCrewmate") is True,  # noqa: N815
+            embeddings=data.get("embeddings") is True,
             exposeToApps=_granted_list(data.get("exposeToApps")),  # noqa: N815
         )
 
