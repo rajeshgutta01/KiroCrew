@@ -377,6 +377,14 @@ export function useComposerSend({
         // No slot yet: the same pending pick the agent picker makes, and like
         // it, drop a model chosen for the previous agent (#2035).
         onPendingAgent: (name) => { setPendingAgent(name, 'template'); setPendingModel('') },
+        // A page left before the fork landed sends nothing: its staging is
+        // not the fork's. The prompt then waits in the fork's draft, and in
+        // this page's map too, which the clear below saves over the store.
+        sendToFork: (key, prompt) => {
+          if (!composerMountedRef.current) { setDraft(drafts.current, key, prompt); return false }
+          if (!connected) return false
+          void send(prompt, key); return true
+        },
       })
       if (slashResult.intercepted) {
         // Not a send either way: the staged quote stays staged for the real one
