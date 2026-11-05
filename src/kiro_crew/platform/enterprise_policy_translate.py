@@ -42,6 +42,7 @@ instead, by :func:`switch`:
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional, Tuple
@@ -73,11 +74,22 @@ MANAGED: Mapping[str, Managed] = MappingProxyType(
         "messaging_channel": Managed(("channels", "members")),
         "messaging": Managed(("capabilities", "messaging"), SWITCH),
         "cron": Managed(("capabilities", "cron"), SWITCH),
+        # Open controls (RFC D3) under their appendix policy terms, so a
+        # remote deny still turns them off; unnamed, they keep Crew's default.
+        "memory_writes": Managed(("capabilities", "memory_writes"), SWITCH),
+        "theme_persona": Managed(("capabilities", "theme_persona"), SWITCH),
         "permission_mode": Managed(
             ("approval_modes",), floor=SCOPE_CATALOG["approval_modes"].always_permitted
         ),
     }
 )
+
+#: A digest of :data:`MANAGED`. The policy cache records it with each translated copy
+#: (``policy_distribution_source._source_identity``), so a copy an older table wrote is
+#: refetched and translated again instead of served.
+TRANSLATION_TAG = hashlib.sha256(
+    repr(sorted((name, row.path, row.kind, row.floor) for name, row in MANAGED.items())).encode()
+).hexdigest()[:12]
 
 #: How often the running gateway re-reads the policy: five minutes, the Kiro agent's
 #: enterprise-management refresh interval. A document with no interval is read at boot
