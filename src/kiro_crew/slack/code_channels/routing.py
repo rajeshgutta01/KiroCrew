@@ -308,6 +308,19 @@ async def _inbound_gate(
     if not code_channels_on(cfg) or not recognition.could_be_code_channel(channel):
         return PASS
     binding = store().get_binding(channel)
+    if binding is not None and not from_trusted_bot:
+        from kiro_crew.slack.handler import is_shared_listed
+
+        if is_shared_listed(sender_id):
+            # Code channels are the owner's (slack.shared_access).
+            _audit(
+                sender_id,
+                "slack.code_channel.message",
+                "denied",
+                f"channel={channel}",
+                "code channel is owner-only",
+            )
+            return DROP
     if binding is not None:
         # A bound channel answers to its stored origin before anything else:
         # every path that passes from here (a trusted bot, a failed lookup)
@@ -857,8 +870,15 @@ def options_answer_permitted(channel: str, sender: str = "") -> bool:
     refuses too, since it cannot show the channel is unbound.
     """
     try:
+        from kiro_crew.slack.handler import is_shared_listed
+
         cfg = live_config(None)
-        if not code_channels_on(cfg) or not recognition.could_be_code_channel(channel):
+        # A shared user (slack.shared_access) is refused in any bound channel, even
+        # with code channels off: the binding, and its session, are still the owner's.
+        shared = is_shared_listed(sender)
+        if not shared and (
+            not code_channels_on(cfg) or not recognition.could_be_code_channel(channel)
+        ):
             return True
         binding = store().get_binding(channel)
         if binding is None:
@@ -869,9 +889,14 @@ def options_answer_permitted(channel: str, sender: str = "") -> bool:
             origin, error = "", "code channel no longer bound"
         else:
             origin = _origin_of(channel, binding, None)
-            if channel_and_origin_permit(cfg, channel, origin):
+            if shared:
+                # Code channels are the owner's (slack.shared_access): an answer
+                # here would be a turn in the owner's code-channel session.
+                error = "code channel is owner-only"
+            elif channel_and_origin_permit(cfg, channel, origin):
                 return True
-            error = "origin activation does not admit a code channel"
+            else:
+                error = "origin activation does not admit a code channel"
     except Exception:
         logger.warning("code channel: options permit lookup failed", exc_info=True)
         origin, error = "", "permit lookup failed"
@@ -1691,9 +1716,10 @@ async def handle_session_stopped(orch: Any, event: dict[str, Any], user: str) ->
     binding = store().get_binding(channel)
     if binding is None:
         return None
-    from kiro_crew.slack.handler import is_allowed_user
+    from kiro_crew.slack.handler import is_allowed_user, is_shared_listed
 
-    if not is_allowed_user(user):
+    # Code channels are the owner's: a shared user (slack.shared_access) stops none.
+    if not is_allowed_user(user) or is_shared_listed(user):
         _audit(
             user, "slack.code_channel.stop", "denied", f"channel={channel}", "unauthorized sender"
         )
