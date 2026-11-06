@@ -324,12 +324,17 @@ class TestCorrectedDeclarations:
         # different changes, so a gate reading a single `files` flag got the wrong
         # answer for one of them.
         from kiro_crew.discord.transport import DISCORD_CAPABILITIES
+        from kiro_crew.feishu.transport import FEISHU_CAPABILITIES
         from kiro_crew.slack.transport import SLACK_CAPABILITIES
 
         assert DISCORD_CAPABILITIES.files_inbound is True
         assert DISCORD_CAPABILITIES.files_outbound is True
         assert SLACK_CAPABILITIES.files_inbound is True
         assert SLACK_CAPABILITIES.files_outbound is True
+        # Feishu sends an answer's local images (client.send_image_reply) but
+        # still reads no inbound attachment.
+        assert FEISHU_CAPABILITIES.files_inbound is False
+        assert FEISHU_CAPABILITIES.files_outbound is True
 
     def test_max_buttons_declares_totals_the_renderers_ship(self) -> None:
         # The field is TOTAL choices, not a per-row layout number. The old

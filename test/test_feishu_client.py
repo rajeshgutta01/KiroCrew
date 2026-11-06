@@ -63,6 +63,8 @@ class _FakeImReply:
 
 
 class _FakeReplyResp:
+    data: Any = None
+
     def __init__(self, ok: bool) -> None:
         self._ok = ok
         self.code = 0 if ok else 99999
@@ -72,9 +74,24 @@ class _FakeReplyResp:
         return self._ok
 
 
+class _FakeImageCreate:
+    """Stub for lark.im.v1.image.create -- records uploads, answers an image_key."""
+
+    def __init__(self) -> None:
+        self.calls: list[Any] = []
+        self.succeed = True
+
+    def create(self, req: Any) -> "_FakeReplyResp":
+        self.calls.append(req)
+        resp = _FakeReplyResp(self.succeed)
+        resp.data = types.SimpleNamespace(image_key="img_v3_key" if self.succeed else None)
+        return resp
+
+
 class _FakeV1:
     def __init__(self) -> None:
         self.message = _FakeImReply()
+        self.image = _FakeImageCreate()
 
 
 class _FakeIm:
@@ -318,6 +335,27 @@ class _FakeReplyMessageRequestBody:
         return _FakeReplyMessageRequestBodyBuilder()
 
 
+class _FakeCreateImage:
+    """Stub for CreateImageRequest and its body: the builder records every setter."""
+
+    def __init__(self) -> None:
+        self.fields: dict[str, Any] = {}
+
+    @classmethod
+    def builder(cls) -> "_FakeCreateImage":
+        return cls()
+
+    def build(self) -> "_FakeCreateImage":
+        return self
+
+    def __getattr__(self, name: str) -> Any:
+        def setter(value: Any) -> "_FakeCreateImage":
+            self.fields[name] = value
+            return self
+
+        return setter
+
+
 # ---------------------------------------------------------------------------
 # Fixture: inject fake lark_oapi into sys.modules
 # ---------------------------------------------------------------------------
@@ -345,6 +383,8 @@ def _fake_lark_sdk():
     im_v1_mod = types.ModuleType("lark_oapi.api.im.v1")
     im_v1_mod.ReplyMessageRequest = _FakeReplyMessageRequest  # type: ignore[attr-defined]
     im_v1_mod.ReplyMessageRequestBody = _FakeReplyMessageRequestBody  # type: ignore[attr-defined]
+    im_v1_mod.CreateImageRequest = _FakeCreateImage  # type: ignore[attr-defined]
+    im_v1_mod.CreateImageRequestBody = _FakeCreateImage  # type: ignore[attr-defined]
 
     api_mod = types.ModuleType("lark_oapi.api")
     im_mod = types.ModuleType("lark_oapi.api.im")
@@ -574,6 +614,35 @@ class TestSendReply:
         client._lark.im.v1.message.succeed = False
         result = await client.send_reply("msg-1", "Hi")
         assert result is False
+
+
+class TestSendImageReply:
+    """send_image_reply: upload the bytes, then reply with the returned image_key."""
+
+    @pytest.mark.asyncio
+    async def test_uploads_as_a_message_image_and_replies_with_its_key(self) -> None:
+        from kiro_crew.feishu.client import LarkClient
+
+        client = LarkClient(app_id="a", app_secret="s")
+        assert await client.send_image_reply("msg-1", b"\x89PNG-bytes") is True
+
+        (upload,) = client._lark.im.v1.image.calls
+        body = upload.fields["request_body"].fields
+        assert body["image_type"] == "message"
+        assert body["image"].read() == b"\x89PNG-bytes"
+        (reply,) = client._lark.im.v1.message.calls
+        assert reply._message_id == "msg-1"
+        assert reply._body._msg_type == "image"
+        assert json.loads(reply._body._content) == {"image_key": "img_v3_key"}
+
+    @pytest.mark.asyncio
+    async def test_a_refused_upload_returns_false_and_sends_no_reply(self) -> None:
+        from kiro_crew.feishu.client import LarkClient
+
+        client = LarkClient(app_id="a", app_secret="s")
+        client._lark.im.v1.image.succeed = False
+        assert await client.send_image_reply("msg-1", b"\x89PNG-bytes") is False
+        assert client._lark.im.v1.message.calls == []
 
 
 # ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import dataclasses
 import inspect
@@ -19,6 +20,11 @@ from kiro_crew.messaging.link import (
     build_dm_session_key,
 )
 from kiro_crew.session_allocation import SessionClosingError
+
+#: A real 2x2 PNG: outbound extraction admits a file on its byte signature.
+_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg=="
+)
 
 # ------------------------------------------------------------------
 # Fakes
@@ -193,10 +199,15 @@ class FakeCtx:
 class FakeClient:
     def __init__(self) -> None:
         self.replies: list[tuple[str, str]] = []
+        self.images: list[tuple[str, bytes]] = []
 
     async def send_reply(self, message_id: str, content: str) -> bool:
         # Mirrors the real LarkClient contract: True on delivery.
         self.replies.append((message_id, content))
+        return True
+
+    async def send_image_reply(self, message_id: str, data: bytes) -> bool:
+        self.images.append((message_id, data))
         return True
 
 
@@ -610,6 +621,47 @@ class TestTurn:
         consumer = captured[0].directive_consumer
         assert consumer is not None, "Feishu turn built without a directive consumer"
         assert inspect.iscoroutinefunction(consumer)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "chat_type, restricted, sent",
+        [("p2p", False, True), ("group", False, False), ("p2p", True, False)],
+    )
+    async def test_an_image_in_the_sessions_cwd_is_sent_only_in_an_unrestricted_dm(
+        self, tmp_path, monkeypatch, chat_type: str, restricted: bool, sent: bool
+    ) -> None:
+        """The upload root is the provider's own cwd, bound once the session exists.
+
+        A group keeps the path (its members are not all on the allow-list), and so
+        does a conversation the shared restricted-session ceiling refuses.
+        """
+
+        async def _ceiling(*_args, **_kwargs) -> bool:
+            return restricted
+
+        monkeypatch.setattr("kiro_crew.feishu.transport_dispatch.uploads_restricted", _ceiling)
+        chart = tmp_path / "chart.png"
+        chart.write_bytes(_PNG)
+        provider = FakeProvider(
+            [
+                AcpEvent(kind=EVENT_TEXT_CHUNK, text=f"Plotted.\n\n![chart]({chart})"),
+                AcpEvent(kind=EVENT_COMPLETE),
+            ]
+        )
+        provider.cwd = str(tmp_path)
+        client = FakeClient()
+        d = _dispatcher(FakeSessions(provider), FakeCtx(), client)
+
+        await d.handle_message(
+            _inbound("plot it", message_id="m1", chat_type=chat_type, chat_id="oc_group")
+        )
+
+        if sent:
+            assert ("m1", "Plotted.") in client.replies
+            assert client.images == [("m1", _PNG)]
+        else:
+            assert ("m1", f"Plotted.\n\n![chart]({chart})") in client.replies
+            assert client.images == []
 
     @pytest.mark.asyncio
     async def test_latch_is_per_route_so_a_group_warns_independently(self) -> None:
