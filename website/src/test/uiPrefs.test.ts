@@ -170,6 +170,21 @@ describe('uiPrefs', () => {
       expect(localStorage.getItem('mc-font-family')).toBe('serif')
     })
 
+    it('restores the Settings > Display > Sidebar Colors choices (issue #29250)', async () => {
+      // The four keys store/dashboardSlice.ts reads for that settings section.
+      const prefs = {
+        'mc-session-colors-palette': 'voyage',
+        'mc-session-colors-intensity': 'vivid',
+        'mc-session-colors-mode': 'gradient',
+        'mc-session-default-color': '3',
+      }
+      mockFetch(() => okJson({ prefs }))
+      expect(await hydrateUiPrefs()).toBe(4)
+      for (const [key, value] of Object.entries(prefs)) {
+        expect(localStorage.getItem(key)).toBe(value)
+      }
+    })
+
     it('never overwrites a value this profile already has', async () => {
       localStorage.setItem('mc-font-family', 'local-wins')
       mockFetch(() => okJson({ prefs: { 'mc-font-family': 'server-copy' } }))
