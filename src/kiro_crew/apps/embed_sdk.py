@@ -24,7 +24,11 @@ one-model guarantee. It is therefore always populated on
 returns vectors with the space identity (model id, width, signature) and an
 explicit not-ready answer, runs at the shared model's bulk priority behind the
 host's own memory work, and takes at most :data:`MAX_BATCH_TEXTS` texts. Without
-the grant it answers ``not_permitted`` instead of embedding.
+the grant it answers ``not_permitted`` instead of embedding. Every grant decision
+is written to the security event log under ``app:<name>``, granted and refused
+alike, so which app used the batch capability, and which was turned away, can be
+reconstructed from the audit trail. The grant is a fair-use declaration, not an
+access control: the ungated single-text members load the same model.
 
 **Never raises into the app.** A missing embedding extra, a model that cannot
 load, or an embed that throws all read as "no vector" (``None``), which is the
@@ -105,16 +109,42 @@ def _on_event_loop() -> bool:
 class EmbedSDK:
     """The gateway's shared embedder and its bounded pool.
 
-    Vectors match what the host's memory uses. Carries no app identity: there is
-    nothing to attribute, and a default instance needs no app name to invent.
+    Vectors match what the host's memory uses.
 
     *batch_granted* is the app's ``permissions.embeddings`` grant. It gates only
     the batch methods, which queue many inferences on the shared model at once;
-    the single-text members stay ungated.
+    the single-text members stay ungated. *app_name* attributes the batch grant
+    decisions in the security event log; the single-text members never use it.
     """
 
-    def __init__(self, *, batch_granted: bool = False) -> None:
+    def __init__(self, *, app_name: str = "", batch_granted: bool = False) -> None:
+        self._app_name = app_name if isinstance(app_name, str) else ""
         self._batch_granted = batch_granted is True
+
+    def _batch_permitted(self, texts: Any) -> bool:
+        """The batch grant decision, SEL-audited whichever way it goes.
+
+        Shared by both batch methods so neither can decide without a record.
+        Best-effort: an audit sink that fails must not turn a refusal into a crash
+        or an allowed batch into a failure.
+        """
+        granted = self._batch_granted
+        count = len(texts) if isinstance(texts, (list, tuple)) else 0
+        app = self._app_name or "<unattributed>"
+        try:
+            from kiro_crew.sel import sel
+
+            sel().log_api_access(
+                caller=f"app:{app}",
+                operation="embed_batch",
+                outcome="allowed" if granted else "denied",
+                source="app",
+                resources=f"app={app} texts={count}",
+                error="" if granted else "permissions.embeddings not granted",
+            )
+        except Exception:  # noqa: BLE001 - auditing must never break the decision
+            _log_once("App embed SDK: could not SEL-audit a batch grant decision")
+        return granted
 
     def available(self) -> bool:
         """True when an embed can produce a vector: the model is ready, or loadable.
@@ -193,8 +223,12 @@ class EmbedSDK:
         Store vectors with :attr:`EmbedBatchResult.space_signature`: vectors from
         different signatures are not comparable.
         """
-        if not self._batch_granted:
+        if not self._batch_permitted(texts):
             return EmbedBatchResult(reason=REASON_NOT_PERMITTED)
+        return self._embed_batch_granted(texts, instruction)
+
+    def _embed_batch_granted(self, texts: Any, instruction: Any) -> EmbedBatchResult:
+        """The batch embed after the grant decision (already made and audited)."""
         if isinstance(texts, (list, tuple)) and len(texts) > MAX_BATCH_TEXTS:
             return EmbedBatchResult(reason=REASON_TOO_MANY_TEXTS)
         prepared = _prepare(texts, instruction)
@@ -247,9 +281,9 @@ class EmbedSDK:
         self, texts: list[str], *, instruction: str | None = None
     ) -> EmbedBatchResult:
         """:meth:`embed_batch_sync` on the host's bounded embed pool, off the event loop."""
-        if not self._batch_granted:
+        if not self._batch_permitted(texts):
             return EmbedBatchResult(reason=REASON_NOT_PERMITTED)
-        return await self.run(self.embed_batch_sync, texts, instruction=instruction)
+        return await self.run(self._embed_batch_granted, texts, instruction)
 
 
 #: Most texts one :meth:`EmbedSDK.embed_batch` call accepts. A larger request is

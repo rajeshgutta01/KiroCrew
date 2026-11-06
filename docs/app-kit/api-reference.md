@@ -1294,7 +1294,7 @@ empty and `reason` says why:
 
 | `reason` | Meaning |
 |---|---|
-| `not_permitted` | The manifest does not declare `permissions.embeddings: true`. |
+| `not_permitted` | The manifest does not declare `permissions.embeddings: true`. The refusal, like each granted batch, is recorded in the security event log under `app:<name>`. |
 | `invalid_input` | `texts` is not a non-empty list of non-blank strings, or `instruction` is blank or over 512 characters. |
 | `too_many_texts` | More than 64 texts. Split the work across calls. |
 | `on_event_loop` | `embed_batch_sync` was called on the event loop. Use `await embed_batch(...)`. |

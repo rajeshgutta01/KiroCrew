@@ -350,3 +350,82 @@ async def test_async_batch_embed_runs_on_the_embed_pool(
     refused = await asyncio.wait_for(EmbedSDK().embed_batch(["ab"]), timeout=default_timeout())
     assert refused.reason == embed_sdk.REASON_NOT_PERMITTED
     assert len(pooled) == 1
+
+
+class _RecordingSel:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.events: list[dict[str, Any]] = []
+        self._fail = fail
+
+    def log_api_access(self, **kw: Any) -> None:
+        if self._fail:
+            raise OSError("audit sink full")
+        self.events.append(kw)
+
+
+def _record_sel(monkeypatch: pytest.MonkeyPatch, *, fail: bool = False) -> _RecordingSel:
+    from kiro_crew import sel as sel_module
+
+    rec = _RecordingSel(fail=fail)
+    monkeypatch.setattr(sel_module, "sel", lambda: rec)
+    return rec
+
+
+def test_a_refused_batch_is_sel_audited_with_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    _use(monkeypatch, _FakeBatchBackend())
+    rec = _record_sel(monkeypatch)
+    out = EmbedSDK(app_name="tickets").embed_batch_sync(["a", "b"])
+    assert out.reason == embed_sdk.REASON_NOT_PERMITTED
+    assert len(rec.events) == 1
+    event = rec.events[0]
+    assert event["caller"] == "app:tickets"
+    assert event["operation"] == "embed_batch"
+    assert event["outcome"] == "denied"
+    assert event["resources"] == "app=tickets texts=2"
+    assert "permissions.embeddings" in event["error"]
+
+
+def test_a_granted_batch_is_sel_audited_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    _use(monkeypatch, _FakeBatchBackend())
+    rec = _record_sel(monkeypatch)
+    out = EmbedSDK(app_name="tickets", batch_granted=True).embed_batch_sync(["a"])
+    assert out.ready is True
+    assert [(e["caller"], e["outcome"]) for e in rec.events] == [("app:tickets", "allowed")]
+
+
+@pytest.mark.asyncio
+async def test_async_batch_decisions_are_audited_once_each(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use(monkeypatch, _FakeBatchBackend())
+    rec = _record_sel(monkeypatch)
+    granted = EmbedSDK(app_name="tickets", batch_granted=True)
+    refused = EmbedSDK(app_name="other")
+    out = await asyncio.wait_for(granted.embed_batch(["a"]), timeout=default_timeout())
+    assert out.ready is True
+    out = await asyncio.wait_for(refused.embed_batch(["a"]), timeout=default_timeout())
+    assert out.reason == embed_sdk.REASON_NOT_PERMITTED
+    assert [(e["caller"], e["outcome"]) for e in rec.events] == [
+        ("app:tickets", "allowed"),
+        ("app:other", "denied"),
+    ]
+
+
+def test_an_audit_failure_does_not_change_the_decision(monkeypatch: pytest.MonkeyPatch) -> None:
+    _use(monkeypatch, _FakeBatchBackend())
+    _record_sel(monkeypatch, fail=True)
+    assert EmbedSDK(app_name="a", batch_granted=True).embed_batch_sync(["x"]).ready is True
+    refused = EmbedSDK(app_name="a").embed_batch_sync(["x"])
+    assert refused.reason == embed_sdk.REASON_NOT_PERMITTED
+
+
+def test_the_context_attributes_batch_decisions_to_the_app(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    from kiro_crew.apps.context import build_app_context
+
+    _use(monkeypatch, _FakeBatchBackend())
+    rec = _record_sel(monkeypatch)
+    build_app_context("tickets", tmp_path, permissions={}).embed.embed_batch_sync(["x"])
+    assert rec.events[0]["caller"] == "app:tickets"
+    assert rec.events[0]["outcome"] == "denied"

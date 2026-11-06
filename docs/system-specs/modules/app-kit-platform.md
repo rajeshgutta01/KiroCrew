@@ -5911,7 +5911,13 @@ The batch members `embed_batch_sync(texts, instruction=None)` and its pooled
 `embed_batch` are the one gated part: `build_app_context` passes
 `batch_granted=permissions.embeddings is True` (`Permissions.embeddings` in
 `apps/manifest_sections.py`), and without it they answer `not_permitted` before
-touching the backend. They return an `EmbedBatchResult` with `model_id`, `dim` and
+touching the backend. `build_app_context` also passes the app name, and one shared
+check (`EmbedSDK._batch_permitted`) writes every grant decision to SEL as
+`log_api_access(caller="app:<name>", operation="embed_batch", outcome="allowed"|"denied")`,
+best-effort so a failed audit write changes neither answer. The grant is a fair-use
+declaration, not an access control: the ungated single-text members load the same
+model, and in-gateway app code could import the embedder. The batch members return
+an `EmbedBatchResult` with `model_id`, `dim` and
 `embeddings_shared.embedding_space_signature(model_id, dim)`, or an empty result with
 a `reason` (`not_permitted`, `invalid_input`, `too_many_texts` past
 `MAX_BATCH_TEXTS` = 64, `on_event_loop`, `not_ready`, `failed`). They call the shared

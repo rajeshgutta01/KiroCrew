@@ -110,9 +110,9 @@ class AppContext:
     # Unconditional, like `scrub` and for the same reason: it adds no reach (the
     # app's in-gateway Python could import the embedder anyway) and it keeps ONE
     # shared model in memory instead of a second copy per app. See
-    # embed_sdk.EmbedSDK; it carries no app identity, so the default is complete.
-    # Its batch members are the exception: they need ``permissions.embeddings``,
-    # which the default (no grant) withholds.
+    # embed_sdk.EmbedSDK. Its batch members are the exception: they need
+    # ``permissions.embeddings``, which the default (no grant) withholds, and the
+    # app name attributes their SEL-audited grant decisions.
     embed: EmbedSDK = field(default_factory=EmbedSDK)
     # The App Kit seam level this host provides. An app built against a newer
     # seam reads it to degrade (or report itself degraded) instead of failing on
@@ -273,6 +273,6 @@ def build_app_context(
         scrub=ScrubSDK(),
         audit=AuditSDK(app_name),
         # Present for every app; only its batch members need the grant.
-        embed=EmbedSDK(batch_granted=perms.get("embeddings") is True),
+        embed=EmbedSDK(app_name=app_name, batch_granted=perms.get("embeddings") is True),
         http_app=http_app,
     )
