@@ -9751,7 +9751,8 @@
       "reveal_blocked": "此路径受保护，无法打开。",
       "reveal_copied_instead": "无法在运行 {{productName}} 的计算机上打开此路径，已改为复制该路径。",
       "reveal_failed": "无法在运行 {{productName}} 的计算机上打开此路径。",
-      "show_folder_in_side_panel": "在侧边面板中显示文件夹"
+      "show_folder_in_side_panel": "在侧边面板中显示文件夹",
+      "open_in_remote_editor": "在 {{editor}} 中打开"
     },
     "pendingQuestionCard": {
       "answer_failed": "无法发送你的回答。智能体仍在等待，请重试。",
@@ -18195,7 +18196,16 @@
         "intensity_clear": "清晰",
         "intensity_vivid": "鲜艳",
         "intensity_bold": "浓郁",
-        "intensity_intense": "强烈"
+        "intensity_intense": "强烈",
+        "remote_editor": "远程编辑器",
+        "remote_editor_editor": "编辑器",
+        "remote_editor_editor_desc": "适用于在另一台机器上运行网关时：在文件菜单中添加一个选项，通过你自己的 SSH 会话在本地编辑器中打开网关上的文件。",
+        "remote_editor_off": "关闭",
+        "remote_editor_host": "SSH 主机",
+        "remote_editor_host_desc": "你用 ssh 连接网关时使用的名称：主机名或 ~/.ssh/config 别名，不带端口或路径。该别名必须存在于你打开此仪表板的每台机器上。",
+        "remote_editor_save_failed": "无法保存编辑器选择。",
+        "remote_editor_host_save_failed": "无法保存 SSH 主机。只填写主机名或 ~/.ssh/config 别名，不要带端口、路径或协议；端口请在 ~/.ssh/config 中设置。",
+        "remote_editor_host_save_error": "无法保存 SSH 主机。"
       },
       "importPanel": {
         "agent_data": "代理数据",

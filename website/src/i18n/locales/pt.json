@@ -10193,7 +10193,8 @@
       "reveal_blocked": "Este caminho está protegido e não pode ser aberto.",
       "reveal_copied_instead": "Não foi possível abrir este caminho na máquina que executa o {{productName}}, então ele foi copiado no lugar.",
       "reveal_failed": "Não foi possível abrir este caminho na máquina que executa o {{productName}}.",
-      "show_folder_in_side_panel": "Mostrar a pasta no painel lateral"
+      "show_folder_in_side_panel": "Mostrar a pasta no painel lateral",
+      "open_in_remote_editor": "Abrir no {{editor}}"
     },
     "pendingQuestionCard": {
       "answer_failed": "Não foi possível enviar sua resposta. O agente ainda está aguardando, então tente novamente.",
@@ -19117,7 +19118,16 @@
         "intensity_clear": "Nítida",
         "intensity_vivid": "Viva",
         "intensity_bold": "Marcante",
-        "intensity_intense": "Intensa"
+        "intensity_intense": "Intensa",
+        "remote_editor": "Editor remoto",
+        "remote_editor_editor": "Editor",
+        "remote_editor_editor_desc": "Para um gateway em outra máquina: adiciona aos menus de arquivo uma opção que abre o arquivo do gateway no seu editor local pela sua própria sessão SSH.",
+        "remote_editor_off": "Desativado",
+        "remote_editor_host": "Host SSH",
+        "remote_editor_host_desc": "O nome que você usaria com ssh para chegar ao gateway: um nome de host ou um alias do ~/.ssh/config, sem porta nem caminho. O alias precisa existir em cada máquina em que você abre este painel.",
+        "remote_editor_save_failed": "Não foi possível salvar a escolha do editor.",
+        "remote_editor_host_save_failed": "Não foi possível salvar o host SSH. Use apenas um nome de host ou um alias do ~/.ssh/config, sem porta, caminho ou esquema; coloque a porta em ~/.ssh/config.",
+        "remote_editor_host_save_error": "Não foi possível salvar o host SSH."
       },
       "importPanel": {
         "agent_data": "Dados do agente",

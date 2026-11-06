@@ -9972,7 +9972,8 @@
       "reveal_blocked": "এই পাথটি সুরক্ষিত এবং খোলা যাবে না।",
       "reveal_copied_instead": "{{productName}} চালানো মেশিনে এই পাথটি খোলা যায়নি, তাই এর বদলে এটি কপি করা হয়েছে।",
       "reveal_failed": "{{productName}} চালানো মেশিনে এই পাথটি খোলা যায়নি।",
-      "show_folder_in_side_panel": "সাইড প্যানেলে ফোল্ডার দেখাও"
+      "show_folder_in_side_panel": "সাইড প্যানেলে ফোল্ডার দেখাও",
+      "open_in_remote_editor": "{{editor}}-এ খোলো"
     },
     "pendingQuestionCard": {
       "answer_failed": "আপনার উত্তর পাঠানো যায়নি। এজেন্ট এখনও অপেক্ষা করছে, তাই আবার চেষ্টা করুন।",
@@ -18656,7 +18657,16 @@
         "intensity_clear": "স্পষ্ট",
         "intensity_vivid": "উজ্জ্বল",
         "intensity_bold": "গাঢ়",
-        "intensity_intense": "তীব্র"
+        "intensity_intense": "তীব্র",
+        "remote_editor": "রিমোট এডিটর",
+        "remote_editor_editor": "এডিটর",
+        "remote_editor_editor_desc": "অন্য মেশিনে চলা গেটওয়ের জন্য: ফাইল মেনুতে একটি অপশন যোগ করে, যা তোমার নিজের SSH সেশনের মাধ্যমে গেটওয়ের ফাইল তোমার লোকাল এডিটরে খোলে।",
+        "remote_editor_off": "বন্ধ",
+        "remote_editor_host": "SSH হোস্ট",
+        "remote_editor_host_desc": "গেটওয়েতে পৌঁছাতে ssh-এ তুমি যে নাম ব্যবহার করো: একটি হোস্টনেম বা ~/.ssh/config অ্যালিয়াস, পোর্ট বা পাথ ছাড়া। যে সব মেশিন থেকে তুমি এই ড্যাশবোর্ড খোলো, তার প্রতিটিতে অ্যালিয়াসটি থাকতে হবে।",
+        "remote_editor_save_failed": "এডিটরের নির্বাচন সংরক্ষণ করা যায়নি।",
+        "remote_editor_host_save_failed": "SSH হোস্ট সংরক্ষণ করা যায়নি। শুধু একটি হোস্টনেম বা ~/.ssh/config উপনাম ব্যবহার করো, পোর্ট, পাথ বা স্কিম ছাড়া; পোর্ট ~/.ssh/config-এ রাখো।",
+        "remote_editor_host_save_error": "SSH হোস্ট সংরক্ষণ করা যায়নি।"
       },
       "importPanel": {
         "agent_data": "এজেন্ট ডেটা",

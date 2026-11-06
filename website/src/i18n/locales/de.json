@@ -9972,7 +9972,8 @@
       "reveal_blocked": "Dieser Pfad ist geschützt und kann nicht geöffnet werden.",
       "reveal_copied_instead": "Dieser Pfad konnte auf dem Computer, auf dem {{productName}} läuft, nicht geöffnet werden und wurde stattdessen kopiert.",
       "reveal_failed": "Dieser Pfad konnte auf dem Computer, auf dem {{productName}} läuft, nicht geöffnet werden.",
-      "show_folder_in_side_panel": "Ordner im Seitenpanel anzeigen"
+      "show_folder_in_side_panel": "Ordner im Seitenpanel anzeigen",
+      "open_in_remote_editor": "In {{editor}} öffnen"
     },
     "pendingQuestionCard": {
       "answer_failed": "Ihre Antwort konnte nicht gesendet werden. Der Agent wartet noch; bitte erneut versuchen.",
@@ -18656,7 +18657,16 @@
         "intensity_clear": "Klar",
         "intensity_vivid": "Lebhaft",
         "intensity_bold": "Kräftig",
-        "intensity_intense": "Intensiv"
+        "intensity_intense": "Intensiv",
+        "remote_editor": "Remote-Editor",
+        "remote_editor_editor": "Editor",
+        "remote_editor_editor_desc": "Für ein Gateway auf einem anderen Rechner: Fügt den Dateimenüs eine Option hinzu, die die Datei des Gateways über deine eigene SSH-Sitzung in deinem lokalen Editor öffnet.",
+        "remote_editor_off": "Aus",
+        "remote_editor_host": "SSH-Host",
+        "remote_editor_host_desc": "Der Name, mit dem du das Gateway per ssh erreichst: ein Hostname oder ein ~/.ssh/config-Alias, ohne Port oder Pfad. Der Alias muss auf jedem Rechner existieren, auf dem du dieses Dashboard öffnest.",
+        "remote_editor_save_failed": "Editor-Auswahl konnte nicht gespeichert werden.",
+        "remote_editor_host_save_failed": "SSH-Host konnte nicht gespeichert werden. Verwende nur einen Hostnamen oder einen ~/.ssh/config-Alias, ohne Port, Pfad oder Schema; trage einen Port in ~/.ssh/config ein.",
+        "remote_editor_host_save_error": "Der SSH-Host konnte nicht gespeichert werden."
       },
       "importPanel": {
         "agent_data": "Agenten-Daten",
