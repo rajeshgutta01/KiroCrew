@@ -103,6 +103,257 @@ async def test_dashboard_pin_refuses_privateness_changed_during_wait(
     )
 
 
+def _writer_database(store: str):
+    from kiro_crew.memory_stores import MEMORY_DB_FILE, _named_store_dir
+
+    return _named_store_dir(store) / MEMORY_DB_FILE
+
+
+@pytest.mark.asyncio
+async def test_dashboard_pin_recreates_a_deleted_member_database(
+    tmp_path, member_stores, monkeypatch
+):
+    """A Bot whose own memory.db was deleted opens on a new empty store with its identity."""
+    import stat
+
+    from kiro_crew import platform_compat
+    from kiro_crew.vector_memory import read_member_database_identity
+
+    writer, _ = member_stores
+    database = _writer_database(writer)
+    database.unlink()
+    pinned: list[str] = []
+    monkeypatch.setattr(
+        chat_persistence,
+        "_pin_private_agent_assignment",
+        lambda *args, **kwargs: pinned.append(args[1]) or writer,
+    )
+    state = _make_state(tmp_path)
+    assigned = await chat_persistence.pin_private_agent_store(
+        state, "dashboard:deleted-db", "writer", KiroCrewConfig.load()
+    )
+    assert assigned == writer
+    assert pinned == ["writer"]
+    member_id = KiroCrewConfig.load().agents["writer"].member_id
+    assert read_member_database_identity(database) == (member_id, writer)
+    assert stat.S_ISREG(database.lstat().st_mode)
+    if platform_compat.IS_POSIX:
+        assert stat.S_IMODE(database.stat().st_mode) == 0o600
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="requires unlinking an open SQLite database")
+async def test_dashboard_pin_releases_cached_deleted_member_database(
+    tmp_path, member_stores, monkeypatch
+):
+    """A prepared turn must not keep learning into the deleted database's handle."""
+    from kiro_crew import context, embeddings
+
+    writer, _ = member_stores
+    monkeypatch.setattr(embeddings, "model_file_present", lambda: False)
+    builder = context.ContextBuilder
+    try:
+        old = await builder.ensure_store(writer)
+        assert old is not None
+        memory = await asyncio.to_thread(builder.get_memory_for, memory_store=writer)
+        assert memory.vector_store is old
+        assert await asyncio.to_thread(
+            old.write_lesson, "Keep database backups", rule_emb_resolved=True
+        )
+        assert await asyncio.to_thread(old.get_lessons)
+        _writer_database(writer).unlink()
+
+        state = _make_state(tmp_path)
+        assert (
+            await chat_persistence.pin_private_agent_store(
+                state, "dashboard:cached-deleted-db", "writer", KiroCrewConfig.load()
+            )
+            == writer
+        )
+        assert writer not in context._vector_stores
+        assert f"store:{writer}" not in context._memory_stores
+        assert f"store:{writer}" not in context._lesson_stores
+        assert memory.vector_store is None
+        assert old._db is None
+        fresh = await builder.ensure_store(writer)
+        assert fresh is not None and fresh is not old
+        assert await asyncio.to_thread(fresh.get_lessons) == []
+        assert await asyncio.to_thread(
+            fresh.write_lesson, "Check replacement databases", rule_emb_resolved=True
+        )
+        await asyncio.to_thread(context.release_cached_memory_store, writer)
+        reopened = await builder.ensure_store(writer)
+        assert reopened is not None
+        assert len(await asyncio.to_thread(reopened.get_lessons)) == 1
+    finally:
+        await asyncio.to_thread(context.release_cached_memory_store, writer)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="store-use admission uses POSIX shared locks")
+async def test_dashboard_pin_refuses_deleted_database_still_open_elsewhere(tmp_path, member_stores):
+    """Another holder's shared admission prevents repair and private publication."""
+    from kiro_crew.member_memory_backup import acquire_store_use_lock, release_store_use_lock
+
+    writer, _ = member_stores
+    database = _writer_database(writer)
+    fd = acquire_store_use_lock(database)
+    try:
+        database.unlink()
+        journal = database.with_name(database.name + "-journal")
+        journal.write_bytes(b"old journal")
+        state = _make_state(tmp_path)
+        key = "dashboard:busy-deleted-db"
+        with pytest.raises(UnknownMemoryStore, match="still open in another process.*restart"):
+            await chat_persistence.pin_private_agent_store(
+                state, key, "writer", KiroCrewConfig.load()
+            )
+        assert not database.exists()
+        assert journal.read_bytes() == b"old journal"
+        assert not list(database.parent.glob("*.orphaned-*"))
+        assert read_session_execution(key) is None
+    finally:
+        release_store_use_lock(fd)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_pin_moves_leftover_side_files_aside_before_recreating(
+    tmp_path, member_stores, monkeypatch
+):
+    """WAL/SHM files a deleted database left behind are renamed aside, never deleted."""
+    from kiro_crew.vector_memory import read_member_database_identity
+
+    writer, _ = member_stores
+    database = _writer_database(writer)
+    database.unlink()
+    for suffix in ("-wal", "-shm"):
+        database.with_name(database.name + suffix).write_bytes(b"stale " + suffix.encode())
+    monkeypatch.setattr(
+        chat_persistence, "_pin_private_agent_assignment", lambda *args, **kwargs: writer
+    )
+    state = _make_state(tmp_path)
+    assert (
+        await chat_persistence.pin_private_agent_store(
+            state, "dashboard:side-files", "writer", KiroCrewConfig.load()
+        )
+        == writer
+    )
+    member_id = KiroCrewConfig.load().agents["writer"].member_id
+    assert read_member_database_identity(database) == (member_id, writer)
+    for suffix in ("-wal", "-shm"):
+        moved = sorted(database.parent.glob(f"{database.name}{suffix}.orphaned-*"))
+        assert [path.read_bytes() for path in moved] == [b"stale " + suffix.encode()]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_pin_refuses_a_linked_side_file(tmp_path, member_stores, monkeypatch):
+    """A side file that is a link keeps the store refused and is left in place."""
+    writer, _ = member_stores
+    database = _writer_database(writer)
+    database.unlink()
+    wal = database.with_name(database.name + "-wal")
+    if wal.exists():
+        wal.unlink()
+    try:
+        wal.symlink_to(tmp_path / "elsewhere-wal")
+    except (OSError, NotImplementedError):
+        pytest.skip("this host cannot create symlinks")
+    called = False
+
+    def assignment(*args, **kwargs):
+        nonlocal called
+        called = True
+        return writer
+
+    monkeypatch.setattr(chat_persistence, "_pin_private_agent_assignment", assignment)
+    state = _make_state(tmp_path)
+    with pytest.raises(UnknownMemoryStore):
+        await chat_persistence.pin_private_agent_store(
+            state, "dashboard:linked-wal", "writer", KiroCrewConfig.load()
+        )
+    assert not called
+    assert wal.is_symlink()
+    assert not database.exists()
+
+
+@pytest.mark.asyncio
+async def test_new_chat_precheck_admits_a_repairable_deleted_database(member_stores):
+    """The new-chat precheck lets the open heal a deleted memory.db instead of refusing."""
+    from kiro_crew.dashboard.chat_handlers import _check_new_slot_assignment
+    from kiro_crew.vector_memory import create_member_database
+
+    writer, _ = member_stores
+    database = _writer_database(writer)
+    database.unlink()
+    await _check_new_slot_assignment(KiroCrewConfig.load(), "writer", "", "", "persistent")
+    assert not database.exists()
+
+    create_member_database(database, member_id="someone-else", store_id=writer)
+    with pytest.raises(UnknownMemoryStore, match="does not own its private memory store"):
+        await _check_new_slot_assignment(KiroCrewConfig.load(), "writer", "", "", "persistent")
+
+
+@pytest.mark.asyncio
+async def test_dashboard_pin_refuses_a_database_of_another_identity(
+    tmp_path, member_stores, monkeypatch
+):
+    """A database that exists but names someone else is refused with that reason."""
+    from kiro_crew.vector_memory import create_member_database
+
+    writer, _ = member_stores
+    database = _writer_database(writer)
+    database.unlink()
+    create_member_database(database, member_id="someone-else", store_id=writer)
+    called = False
+
+    def assignment(*args, **kwargs):
+        nonlocal called
+        called = True
+        return writer
+
+    monkeypatch.setattr(chat_persistence, "_pin_private_agent_assignment", assignment)
+    state = _make_state(tmp_path)
+    with pytest.raises(UnknownMemoryStore) as refused:
+        await chat_persistence.pin_private_agent_store(
+            state, "dashboard:foreign-db", "writer", KiroCrewConfig.load()
+        )
+    message = str(refused.value)
+    assert "Member database identity does not match its declaration" in message
+    assert "changed during private memory assignment" not in message
+    assert not called
+
+
+@pytest.mark.asyncio
+async def test_dashboard_pin_refuses_a_symlink_at_the_database_path(
+    tmp_path, member_stores, monkeypatch
+):
+    """A link where the database should be is never replaced with a new database."""
+    writer, _ = member_stores
+    database = _writer_database(writer)
+    database.unlink()
+    try:
+        database.symlink_to(tmp_path / "elsewhere.db")
+    except (OSError, NotImplementedError):
+        pytest.skip("this host cannot create symlinks")
+    called = False
+
+    def assignment(*args, **kwargs):
+        nonlocal called
+        called = True
+        return writer
+
+    monkeypatch.setattr(chat_persistence, "_pin_private_agent_assignment", assignment)
+    state = _make_state(tmp_path)
+    with pytest.raises(UnknownMemoryStore) as refused:
+        await chat_persistence.pin_private_agent_store(
+            state, "dashboard:linked-db", "writer", KiroCrewConfig.load()
+        )
+    assert "changed during private memory assignment" not in str(refused.value)
+    assert not called
+    assert database.is_symlink()
+    assert not (tmp_path / "elsewhere.db").exists()
+
+
 @pytest.mark.asyncio
 async def test_dashboard_pin_holds_namespace_lock_through_publication(
     tmp_path, member_stores, monkeypatch
