@@ -20,6 +20,7 @@ from typing import Any
 import kiro_crew.config.resolution as _resolution
 from kiro_crew.atomic_write import atomic_write
 from kiro_crew.aws_project_profiles import coerce_project_profiles
+from kiro_crew.config import loosening_provenance
 from kiro_crew.config import migration as _migration
 from kiro_crew.config import sections as _sections
 from kiro_crew.config import windows_exec_adoption
@@ -396,8 +397,12 @@ def read_config_document() -> ConfigDocument:
     if path.exists():
         try:
             base_text = read_config_text(path)
-            read_parts[0] = base_text.encode("utf-8")
-            raw = json.loads(base_text)
+            base_bytes = base_text.encode("utf-8")
+            read_parts[0] = base_bytes
+            # Where the namespace sandbox seals this file, serve the gateway-endorsed
+            # copy when the on-disk bytes differ, so a direct in-sandbox rewrite of ANY
+            # key is ignored; a no-op everywhere else. See loosening_provenance.
+            raw = json.loads(loosening_provenance.reconcile("config.json", base_bytes))
             if isinstance(raw, dict):
                 data = raw
                 loaded_base = True
@@ -466,8 +471,9 @@ def read_config_document() -> ConfigDocument:
                     local_path,
                 )
             local_text = read_config_text(local_path)
-            read_parts[1] = local_text.encode("utf-8")
-            raw_local = json.loads(local_text)
+            local_bytes = local_text.encode("utf-8")
+            read_parts[1] = local_bytes
+            raw_local = json.loads(loosening_provenance.reconcile("config.local.json", local_bytes))
             if isinstance(raw_local, dict):
                 local_data = raw_local
             else:

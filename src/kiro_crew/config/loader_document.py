@@ -23,6 +23,7 @@ from typing import Any, Literal
 from kiro_crew import __version__, platform_compat, windows_acl
 from kiro_crew.atomic_write import atomic_write, on_event_loop
 from kiro_crew.aws_project_profiles import PROJECT_PROFILES_KEY, project_profile_refusals
+from kiro_crew.config import loosening_provenance
 from kiro_crew.config import migration as _migration
 from kiro_crew.config import sections as _sections
 from kiro_crew.config import write_provenance
@@ -276,7 +277,16 @@ def read_config_for_update(path: Path | None = None) -> dict:
     try:
         if not p.exists():
             return {}
-        raw = json.loads(read_config_text(p))
+        content = read_config_text(p).encode("utf-8")
+        # The read half of a read-modify-write must see what the LOADER sees
+        # (read_config_document reconciles these same bytes): where the namespace
+        # sandbox seals config.json / config.local.json, a tampered file reads as the
+        # gateway-endorsed copy, so this update cannot re-endorse the tamper. Any other
+        # document read through here is returned as written.
+        leaf = loosening_provenance.leaf_for(p)
+        if leaf is not None:
+            content = loosening_provenance.reconcile(leaf, content)
+        raw = json.loads(content)
     except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
         # UnicodeDecodeError is a ValueError, NOT an OSError, so it needs naming
         # explicitly: a config containing invalid UTF-8 (a truncated multi-byte
@@ -594,46 +604,56 @@ def write_config_atomically(path: Path, data: dict, *, fsync: bool = False) -> N
         mode &= ~GROUP_OTHER_BITS
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(data, indent=2) + "\n"
-    if platform_compat.IS_POSIX:
-        # Vouch for the staged inode before it is published, so a Linux sandbox whose
-        # pre-spawn pass recorded the previous one does not refuse the gateway's own
-        # save. Only the POSIX branch: no other platform runs the namespace launcher
-        # that reads the record.
-        atomic_write(
-            path,
-            payload,
-            fsync=fsync,
-            mode=mode,
-            on_staged=write_provenance.staging_hook(name_as_given),
-        )
-    elif lock_down:
-        # Windows: the mode bits above are inert (fchmod_safe is a documented
-        # no-op), so there is nothing to preserve and no conflict with
-        # restrict_to_owner's implied 0600. Taking the lockdown here rather than
-        # leaving it to callers also closes the window a post-write lockdown
-        # would leave: atomic_write applies the DACL to the temp file BEFORE any
-        # content reaches it, so an inline credential never exists in a file
-        # readable by other local accounts.
-        #
-        # restrict_on_error="warn", not the default "raise": config.json must not
-        # become unwritable because a DACL could not be applied. Same trade-off
-        # sel.py and dashboard/refresh_tokens.py already take, and strictly
-        # better than the previous behavior, which applied no DACL at all.
-        atomic_write(
-            path,
-            payload,
-            fsync=fsync,
-            restrict_to_owner=True,
-            restrict_on_error="warn",
-        )
-    else:
-        # Reached only by a write still INLINE ON THE LOOP whose volume is not
-        # local: exactly the write this branch did before the lockdown was added,
-        # so such a data home is no worse off than before. The residual is real and
-        # declared -- the file keeps the ACL it inherits from its parent -- but it
-        # is now per CALLER rather than per platform: offloading a caller moves it
-        # to the branch above and it gets the DACL with no change needed here.
-        atomic_write(path, payload, fsync=fsync, mode=mode)
+    # Endorse the writer's own bytes BEFORE the rename publishes them, so the loader can
+    # tell this save from a direct in-sandbox rewrite the per-file read-only bind stops
+    # covering after the rename, and nothing landed on the name around the rename is
+    # ever endorsed. Keyed by the protected file the path RESOLVES to, so a symlinked
+    # config is endorsed under its logical name. Where the sandbox seals these files a
+    # copy that cannot be written aborts the write (loosening_provenance.endorsing).
+    # The bytes are what the POSIX branch publishes; Windows never enforces.
+    with loosening_provenance.endorsing(
+        loosening_provenance.leaf_for(name_as_given), payload.encode("utf-8")
+    ):
+        if platform_compat.IS_POSIX:
+            # Vouch for the staged inode before it is published, so a Linux sandbox whose
+            # pre-spawn pass recorded the previous one does not refuse the gateway's own
+            # save. Only the POSIX branch: no other platform runs the namespace launcher
+            # that reads the record.
+            atomic_write(
+                path,
+                payload,
+                fsync=fsync,
+                mode=mode,
+                on_staged=write_provenance.staging_hook(name_as_given),
+            )
+        elif lock_down:
+            # Windows: the mode bits above are inert (fchmod_safe is a documented
+            # no-op), so there is nothing to preserve and no conflict with
+            # restrict_to_owner's implied 0600. Taking the lockdown here rather than
+            # leaving it to callers also closes the window a post-write lockdown
+            # would leave: atomic_write applies the DACL to the temp file BEFORE any
+            # content reaches it, so an inline credential never exists in a file
+            # readable by other local accounts.
+            #
+            # restrict_on_error="warn", not the default "raise": config.json must not
+            # become unwritable because a DACL could not be applied. Same trade-off
+            # sel.py and dashboard/refresh_tokens.py already take, and strictly
+            # better than the previous behavior, which applied no DACL at all.
+            atomic_write(
+                path,
+                payload,
+                fsync=fsync,
+                restrict_to_owner=True,
+                restrict_on_error="warn",
+            )
+        else:
+            # Reached only by a write still INLINE ON THE LOOP whose volume is not
+            # local: exactly the write this branch did before the lockdown was added,
+            # so such a data home is no worse off than before. The residual is real and
+            # declared -- the file keeps the ACL it inherits from its parent -- but it
+            # is now per CALLER rather than per platform: offloading a caller moves it
+            # to the branch above and it gets the DACL with no change needed here.
+            atomic_write(path, payload, fsync=fsync, mode=mode)
 
 
 def coerce_dict_section(doc: dict, key: str) -> dict:

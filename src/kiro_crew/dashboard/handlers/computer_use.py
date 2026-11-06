@@ -81,6 +81,7 @@ from kiro_crew.computer_use.types import (
     PolicyConfig,
     PolicyStateError,
 )
+from kiro_crew.config import loosening_provenance
 from kiro_crew.config.loader import computer_use_state_path, read_config_text
 from kiro_crew.edition_locks import LOCKED_BY_POLICY
 from kiro_crew.executors import subprocess_executor
@@ -332,7 +333,12 @@ def _read_state_strict() -> dict:
     if not path.exists():
         return {}
     try:
-        raw = path.read_text(encoding="utf-8")
+        # Mutate what load_state enforces, not a tampered file: where the namespace
+        # sandbox seals this keystone, a direct in-sandbox rewrite reads as the
+        # gateway-endorsed copy, so this save cannot re-endorse it.
+        raw = loosening_provenance.reconcile(
+            loosening_provenance.LEAF_COMPUTER_USE, path.read_bytes()
+        )
     except OSError as exc:
         raise StateCorruptError(str(exc)) from exc
     try:

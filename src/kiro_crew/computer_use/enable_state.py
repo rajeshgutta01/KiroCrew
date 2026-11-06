@@ -37,6 +37,7 @@ from kiro_crew.computer_use.types import (
     PolicyConfig,
 )
 from kiro_crew.config import loader as config_loader
+from kiro_crew.config import loosening_provenance
 
 logger = logging.getLogger(__name__)
 
@@ -70,13 +71,19 @@ def load_state() -> dict:
     ceiling file must not be interpreted generously.
     """
     try:
-        raw = json.loads(computer_use_state_path().read_text(encoding="utf-8"))
-        return raw if isinstance(raw, dict) else {}
+        content = computer_use_state_path().read_bytes()
+        # Where the namespace sandbox seals this file, serve the gateway-endorsed copy
+        # when the on-disk bytes differ, so a direct in-sandbox rewrite of ``enabled``
+        # (or any key) is ignored; a no-op off Linux / without userns. See
+        # loosening_provenance.
+        eff = loosening_provenance.reconcile(loosening_provenance.LEAF_COMPUTER_USE, content)
+        raw = json.loads(eff.decode("utf-8"))
     except FileNotFoundError:
         return {}
     except Exception:
         logger.debug("computer_use.json load failed; treating as disabled", exc_info=True)
         return {}
+    return raw if isinstance(raw, dict) else {}
 
 
 def is_enabled(state: "dict | None" = None, *, audit_tool: str = "") -> bool:
@@ -142,4 +149,12 @@ def save_state(state: dict) -> None:
         raise ValueError("computer_use.json state must be a dict")
     path = computer_use_state_path()
     payload: dict[str, Any] = dict(state)
-    atomic_write(path, json.dumps(payload, indent=2) + "\n", mode=_STATE_FILE_MODE)
+    text = json.dumps(payload, indent=2) + "\n"
+    # Endorse these exact bytes BEFORE the rename publishes them, so load_state honours
+    # the enabled switch it just saved and drops one written directly inside a sandbox
+    # (the per-file read-only bind stops covering this file after a rename), and
+    # nothing landed on the name around the rename is endorsed.
+    with loosening_provenance.endorsing(
+        loosening_provenance.LEAF_COMPUTER_USE, text.encode("utf-8")
+    ):
+        atomic_write(path, text, mode=_STATE_FILE_MODE)

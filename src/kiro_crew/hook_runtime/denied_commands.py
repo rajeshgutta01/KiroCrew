@@ -56,10 +56,16 @@ def load_denied_commands_state() -> dict:
     ``user_added`` rules drop out of the gate, and that must not happen quietly.
     """
     try:
+        from kiro_crew.config import loosening_provenance
         from kiro_crew.config.loader import denied_commands_path
         from kiro_crew.user_json import loads_user_json
 
-        raw = loads_user_json(denied_commands_path().read_text(encoding="utf-8"))
+        content = denied_commands_path().read_bytes()
+        # Where the namespace sandbox seals this file, serve the gateway-endorsed copy
+        # when the on-disk bytes differ, so a direct in-sandbox rewrite of disable_all
+        # (or any key) is ignored; a no-op off Linux / without userns.
+        eff = loosening_provenance.reconcile(loosening_provenance.LEAF_DENIED_COMMANDS, content)
+        raw = loads_user_json(eff.decode("utf-8"))
     except FileNotFoundError:
         return {}
     except Exception as exc:

@@ -104,7 +104,15 @@ def _read_denied_strict() -> dict:
     try:
         # Same sharing-violation retry as the tolerant reader: a transient
         # Windows read contention is not a corrupt file.
-        raw = read_bytes_with_retry(path).decode("utf-8")
+        content = read_bytes_with_retry(path)
+        # Mutate what the gate enforces, not a tampered file: where the namespace
+        # sandbox seals this keystone, a direct in-sandbox rewrite reads as the
+        # gateway-endorsed copy, so this save cannot re-endorse it. See
+        # loosening_provenance.
+        from kiro_crew.config import loosening_provenance
+
+        content = loosening_provenance.reconcile(loosening_provenance.LEAF_DENIED_COMMANDS, content)
+        raw = content.decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise ConfigCorruptError(str(exc)) from exc
     from kiro_crew.user_json import loads_user_json
@@ -335,16 +343,22 @@ async def _write_denied_state(mutate) -> dict:
     path: Path = denied_commands_path()
 
     def _read_modify_write() -> dict:
+        from kiro_crew.config import loosening_provenance
+
         denied = _read_denied_strict()
         mutate(denied)
-        # atomic_write(..., restrict_to_owner=True) refuses a linked parent
-        # before it mkdir's, then locks the temp. A mkdir here would walk
-        # through a planted link and create dirs under its target first.
-        atomic_write(
-            path,
-            json.dumps(denied, indent=2) + "\n",
-            restrict_to_owner=True,
-        )
+        payload = json.dumps(denied, indent=2) + "\n"
+        # Endorse these exact bytes BEFORE the rename publishes them, so
+        # load_denied_commands_state keeps this opt-out and drops one written directly
+        # inside a sandbox (the per-file read-only bind stops covering this file after
+        # the rename), and nothing landed on the name around the rename is endorsed.
+        with loosening_provenance.endorsing(
+            loosening_provenance.LEAF_DENIED_COMMANDS, payload.encode("utf-8")
+        ):
+            # atomic_write(..., restrict_to_owner=True) refuses a linked parent
+            # before it mkdir's, then locks the temp. A mkdir here would walk
+            # through a planted link and create dirs under its target first.
+            atomic_write(path, payload, restrict_to_owner=True)
         return denied
 
     async with _get_config_lock():

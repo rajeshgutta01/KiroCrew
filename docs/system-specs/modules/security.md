@@ -330,6 +330,50 @@ rewritten on every claude-agent-acp seed and release) is sealed that way; sealed
 file it made an unrelated spawn refuse whenever a seed write landed between the pass and
 the pin.
 
+**The keystone config files are sealed by content, whole-file.** The seal on the four
+runtime-keystone files (`config.json`, `config.local.json`, `denied_commands.json`,
+`computer_use.json`) is a Linux per-FILE bind, and the kernel detaches a file bind whose
+target is renamed over from another mount namespace. So the seal on one of these holds from
+a sandbox's spawn only until the gateway's NEXT rename-save of that file, after which an
+in-sandbox `open(..., "w")` reaches the name again until that sandbox respawns -- and the
+gateway is the victim-reader: it reads these files to decide the next spawn's sandbox tier,
+the deny ceiling, tool auto-approval and whether a computer-use call is allowed.
+`config/loosening_provenance.py` closes this INDEPENDENTLY of the bind holding, and WITHOUT a
+list of keys to keep current: every gateway write stores the writer's OWN bytes as the
+ENDORSED COPY under the `config-provenance` directory (a DIRECTORY bind, immune to the
+rename-detach above) BEFORE its rename publishes them (`loosening_provenance.endorsing`), never
+a re-read of the destination, so nothing landed on the name around the rename is endorsed.
+Each loader serves the endorsed copy whenever the on-disk bytes differ from it, and so does
+the READ half of every read-modify-write (`read_config_for_update`, the denied-command and
+computer-use savers' strict reads), at the bytes level before parsing: an unrelated later
+save patches the endorsed document, never re-endorses a tampered file. Every key is covered,
+tightening and loosening alike; the gateway's next write overwrites both the file and the
+copy, so a tampered file self-heals. Every legitimate writer publishes through `atomic_write`
+and endorses (the dashboard config API, `kirocrew config`, boot migrations, the computer-use
+and denied-command savers); the direct in-sandbox `open()` the detach enables does not. The
+endorsement store fails closed where enforcement applies: the copy is itself written by
+temp+rename, a failed write leaves the PREVIOUS copy in place (never unlinked), a copy that
+cannot be written aborts the save before anything is published, a publish that fails after
+endorsing puts the prior copy back, and a copy that exists but cannot be read raises instead
+of reading as "none" (which would serve the disk bytes). A symlinked `config.json` /
+`config.local.json` is endorsed under its LOGICAL name: the protected leaf is matched by
+resolved identity against the data-home name (`loosening_provenance.leaf_for`), so resolving
+the link for locking and writing does not lose it. A one-time adoption at gateway start
+(`GatewayOrchestrator.run`, the
+entry both the CLI gateway and the in-process test gateway reach, before any session or
+sandbox) endorses the current bytes of each file with no copy yet, so an operator's existing
+settings survive the first start after upgrade; a file tampered BEFORE that first boot is
+adopted as-is -- the one case this cannot catch. It applies ONLY where that per-file bind can
+actually lapse -- a Linux host whose namespace sandbox can be built
+(`loosening_provenance.enforcement_active`, deferring to `sandbox.userns_available`, HOST FACTS
+only so it never reads the file it protects); off Linux, and in a container without user
+namespaces, nothing seals these files, so the loaders serve them as written. The trade-off
+where it applies: a hand edit to one of these files takes effect only when saved through the
+gateway (Settings, the config API, or `kirocrew config`), which records a fresh copy -- Kiro
+Crew's users have no terminal, so Settings is the supported path. An endorsed copy of
+`config.json` can hold an inline token, but it is no more exposed than `config.json` itself
+(both readable in-sandbox, neither on the read-gate floor) and is written owner-only.
+
 **The FIRST look does not follow, and a link is still followed once -- those are two
 different statements and both are needed.** A link occupying a protected name has two
 unrelated causes wanting opposite answers: an ordinary `stow` or `chezmoi` layout has had

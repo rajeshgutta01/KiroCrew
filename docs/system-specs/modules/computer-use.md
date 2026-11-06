@@ -113,6 +113,23 @@ The gate **fails closed** — a missing, unreadable or malformed keystone yields
 entry — matching `enable_state`'s own posture, for a stronger reason: the open
 position hands out the operator's whole desktop.
 
+`is_enabled()` reads whatever the gateway last endorsed, not a tampered disk file.
+`computer_use.json` is a per-file read-only sandbox leaf, and the Linux bind stops
+sealing it after the gateway's next rename-save, so a prompt-injected agent could
+write `enabled: true` directly past the seal; where the namespace sandbox seals it,
+`enable_state.load_state` parses the gateway-endorsed copy whenever the on-disk bytes
+differ (whole-file, so every key including `enabled` is covered). `save_state`
+endorses its own serialized bytes before the rename publishes them, and the dashboard
+saver's strict read (`_read_state_strict`) reconciles the same way before it mutates,
+so a later unrelated save cannot re-endorse a tampered `enabled: true`. Where the
+sandbox seals the keystone, a copy that cannot be written aborts the save, and an
+unreadable copy reads as an unreadable keystone (disabled). A one-time startup
+adoption endorses an existing keystone
+on the first boot after upgrade. This applies only where the Linux namespace sandbox
+actually seals the keystone (`loosening_provenance.enforcement_active`, host facts
+only); off Linux, and in a container without user namespaces, the keystone is read as
+written. Mechanism and threat: [security](security.md) and [config](config.md).
+
 Both in-process checks stay, and they cover what the gate structurally cannot: the
 keystone flipping **off** mid-session, after the spec was written and the backend
 spawned. The gate covers what they cannot: the process existing.

@@ -108,6 +108,31 @@ module imports the ACP layer. The rest lives in one owner per responsibility, lo
 | `config/loader_config.py` | `KiroCrewConfig`: fields, `load`, `to_dict`, `save`, model, effort and credential resolution, and the provider factory. |
 | `config/loader_pipeline.py` | The load pipeline (`ConfigDocument`, `read_config_document`, `build_config`, `persist_write_back`) and the one-call loaders built on the class (`workspace_dir_for`, `default_project_dir`, `load_config_with_content_stamp`, `load_loop_stall_exit_after`). |
 
+**Sandbox-loosening content provenance.** `config/loosening_provenance.py` stores the exact
+bytes of every gateway write of `config.json` / `config.local.json` (at
+`write_config_atomically`) -- and of `denied_commands.json` and `computer_use.json` at their own
+savers -- as the ENDORSED COPY under the sealed `config-provenance` directory. The writer
+endorses its OWN payload before the rename publishes it (`endorsing`), never a re-read of the
+destination; the leaf is matched by resolved identity (`leaf_for`), so a symlinked
+`config.json` resolved by `update_config_locked` / `KiroCrewConfig.save` is still endorsed under
+its logical name. `read_config_document` parses `reconcile(leaf, disk_bytes)`, and so does
+`read_config_for_update`, the read half of every read-modify-write: where the namespace sandbox
+seals these files, both serve the endorsed copy whenever the on-disk bytes differ, PER FILE and
+before the merge, so an unrelated save cannot re-endorse a tampered file. Under enforcement the
+store fails closed: a failed copy write keeps the previous copy and aborts the save before
+publishing, a failed publish restores the prior copy, and an existing but unreadable copy
+raises rather than serving disk bytes. It is whole-file, so every key is covered with no key
+list to maintain; the
+gateway's next write overwrites file and copy, so a tampered file self-heals. It runs only where
+the per-file bind can detach (`enforcement_active`: a Linux host whose namespace sandbox can be
+built, HOST FACTS only so it never reads the file it protects); elsewhere the on-disk file is
+served as written. It is separate from the sibling `write_provenance.py`: that one pins the INODE
+identity for the Linux launcher, this one keeps the CONTENT the loaders parse. The copy is the
+writer's published bytes; the one-time adoption (the only path that reads a file at rest to
+endorse it) runs from `GatewayOrchestrator.run`, the entry both the
+CLI gateway and the in-process test gateway reach. Why, and the threat it closes:
+[security](../modules/security.md).
+
 **The harness-choice record.** `agent.acp_backend` and `agent.member_acp_backend` absent or `""` mean no harness choice and resolve to the default; a stored `"kiro"` is the Kiro CLI choice ([harness-parity](harness-parity.md) H1), except in `agent.member_acp_backend`, where `_read_backend_choice` (`config/loader_builders.py`) reads it as KAS before the selection gate, so every reader of the field sees the backend Bot threads run on and the mapped value is gated like any other pick. In `agent.acp_backend` `_read_backend_choice` reads that choice as KAS (`kiro_cli_pick_backend`; the selection gate itself answers Kiro CLI for Kiro CLI) once this process confirmed the host's kiro-cli offers v3 and while KAS is selectable (`KIRO_SELECTION_BACKEND`; `docs/decisions/2026-10-28-a-kiro-cli-choice-runs-on-kas.md`) — the gateway's KAS floor confirms it at boot, and a non-gateway process that spawns an ACP agent (the CLI, the eval and task runners, history consolidation) confirms it via `ensure_kiro_cli_kas_verdict` before its config load — so the field and the dashboard response read `"kas"` there while `config.json` keeps `"kiro"`; a process that never confirms it (an MCP server, a process whose kiro-cli lacks v3, the bundle route) reads `"kiro"`; `acp_backend_stored_as_kiro()` (`config/loader_document.py`, overlay first) is the one reader of the stored choice, for the KAS floor, the per-process probe, `kirocrew doctor`, the once-only bell note and the Agent Harness panel's save-KAS offer. The loader maps the stored vocabulary to runtime ids on the way in (`_read_backend_choice`), and `to_dict()` maps back (`_stored_agent_dict`), so `config get`, the dashboard response and every full-document writer see `"kiro"` for a Kiro CLI harness that runs as itself, never the runtime `""`. `to_dict()` carries the RESOLVED value; `save()` writes both keys back as `config.json` stores them (`_restore_stored_harness_fields`, read from disk like `unsandboxed_exec_declared`), so it never invents a choice and never replaces a policy-denied pick with the floor. An in-memory change to either key is therefore not persisted by `save()`; the delta writers (`config set`, the dashboard PATCH) are the write path. `acp_backend_declared()` reports a stored choice, overlay first.
 
 Two call cycles run through the owners, and each is broken by one function-local
