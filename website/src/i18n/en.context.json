@@ -459,7 +459,6 @@
     "pages.contextBreakdown.turn_button_chars": "Character count on the right of a session-start row: an already-formatted number followed by the unit word.",
     "pages.contextBreakdown.turn_latest": "Heading of the Context Breakdown detail section when the newest turn is selected: the turn number plus a marker meaning \"the most recent one\". A turn is one user message and the reply to it.",
     "pages.contextBreakdown.unit_chars": "Unit word shown right after the large character count of the selected turn in the Context Breakdown panel (\"2,400 characters\"): lowercase, plural, noun only.",
-    "pages.devFleetPage.mb": "The unit \"MB\" = megabytes, rendered after a numeric size.",
     "pages.devFleetPage.pod": "A Kiro Crew dev \"pod\" — an isolated development environment. Product terminology; see the do-not-translate glossary before translating.",
     "pages.devFleetPage.pod_2": "A Kiro Crew dev \"pod\" — an isolated development environment. Product terminology; see the do-not-translate glossary before translating.",
     "pages.devFleetPage.pr": "Label introducing a pull-request link. \"PR\" = pull request; keep the abbreviation the target language's developers use, and keep the colon.",
