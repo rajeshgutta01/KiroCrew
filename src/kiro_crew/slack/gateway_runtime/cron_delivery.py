@@ -167,6 +167,22 @@ async def _deliver_cron_agent_result(
                 context_reading=_ctx_reading,
                 turn_stats=_turn_stats,
             )
+        run_tab = ""
+        if job.new_chat_per_run and not job.persistent_session and not job.hide_in_chat:
+            # The run's own tab, on the run's own session (``new_chat_per_run``).
+            from kiro_crew.dashboard.cron_inject import cron_tab_name
+
+            inject_cron_result_to_dashboard(
+                self.dashboard_state,
+                job,
+                result_text,
+                history=await prefetch_cron_history(self.dashboard_state, job.id, session_key),
+                context_reading=_ctx_reading,
+                turn_stats=_turn_stats,
+                session_key=session_key,
+            )
+            if self.dashboard_state.has_slot(cron_tab_name(session_key)):
+                run_tab = cron_tab_name(session_key)
         redacted_for_dash, _ = redact_exfiltration_urls(result_text)
         redacted_for_dash, _ = redact_credentials(redacted_for_dash)
         safe_name, _ = redact_exfiltration_urls(job.name)
@@ -185,6 +201,8 @@ async def _deliver_cron_agent_result(
             and self.dashboard_state.has_slot(f"cron-{job.id}")
         ):
             notify_meta["slot"] = f"cron-{job.id}"
+        elif run_tab:
+            notify_meta["slot"] = run_tab
         self.dashboard_state.notify(
             "cron",
             f"Cron: {safe_name}",
