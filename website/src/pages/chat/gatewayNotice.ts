@@ -106,6 +106,7 @@ const NOTICE_FAMILIES = {
   code_channel_worktree_not_ready: { role: 'error', card: 'error' },
   remote_crew_read_only: { role: 'error', card: 'error' },
   archive_failed_turn_cancelled: { role: 'error', card: 'error' },
+  kas_signed_out: { role: 'error', card: 'error' },
 } as const satisfies Record<string, Family>
 
 export type GatewayNoticeToken = keyof typeof NOTICE_FAMILIES
@@ -177,6 +178,7 @@ const COPY_KEY = {
   code_channel_worktree_not_ready: 'pages.chat.gatewayNotice.code_channel_worktree_not_ready',
   remote_crew_read_only: 'pages.chat.gatewayNotice.remote_crew_read_only',
   archive_failed_turn_cancelled: 'pages.chat.gatewayNotice.archive_failed_turn_cancelled',
+  kas_signed_out: 'pages.chat.gatewayNotice.kas_signed_out',
 } as const satisfies Record<GatewayNoticeToken, string>
 
 /** Copy for a row whose args carry a recovery ordinal (`n` of `max`). */
@@ -398,6 +400,12 @@ const LEGACY: readonly Legacy[] = [
     re: /^ℹ\uFE0F? Automatic retry was skipped because the fallback model \(`agent\.refusal_fallback_model`\) is the same as your current model — retrying the same model hits the same filter\. Pick a different model for the fallback to retry automatically\.$/u,
     token: 'refusal_fallback_same_model',
   },
+  { re: /^Not signed in to Kiro\. Sign in from Settings → Agent Harness → Kiro sign-in, then start a new chat\.$/u, token: 'kas_signed_out' },
+  { re: /^KAS runs through kiro-cli's relay\. Not signed in to Kiro\. Sign in from Settings → Agent Harness → Kiro sign-in, then start a new chat\.$/u, token: 'kas_signed_out' },
+  {
+    re: /^KAS runs on Kiro Crew's own engine(?: because [^.]+| \(agent\.kas_bundle is on\))?\. Not signed in to Kiro\. Sign in from Settings → Agent Harness → Kiro sign-in, then start a new chat\.$/u,
+    token: 'kas_signed_out',
+  },
 ]
 
 interface Shape {
@@ -528,6 +536,16 @@ function outcomeAfter(messages: readonly ChatMessage[], index: number): Outcome 
     }
   }
   return 'pending'
+}
+
+/**
+ * Copy for a KAS signed-out row drawn with the sign-in button under it, or null
+ * for any other row. The row's own copy names the Settings path, for a surface
+ * with no button; next to the button, the button is the way.
+ */
+export function kasSignedOutBesideButton(m: ChatMessage): string | null {
+  const shape = shapeOf(m)
+  return shape?.token === 'kas_signed_out' ? i18nT('pages.chat.gatewayNotice.kas_signed_out_sign_in_below') : null
 }
 
 /**

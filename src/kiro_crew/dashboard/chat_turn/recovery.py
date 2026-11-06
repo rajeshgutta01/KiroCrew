@@ -301,7 +301,7 @@ def _terminal_error_meta(exc: BaseException) -> dict[str, object] | None:
     if contested is not None:
         return contested
     if getattr(exc, "auth_required", False):
-        return {"kind": AUTH_REQUIRED_KIND}
+        return {"kind": AUTH_REQUIRED_KIND, **_kas_signed_out_notice(str(exc))}
     if getattr(exc, "usage_limit", False):
         return {"kind": USAGE_LIMIT_KIND}
     if getattr(exc, "image_dimension_wedge", False) is True:
@@ -315,6 +315,19 @@ def _terminal_error_meta(exc: BaseException) -> dict[str, object] | None:
     if getattr(exc, "kiro_cli_missing", False) is True:
         return {"kind": KIRO_CLI_MISSING_KIND}
     return None
+
+
+def _kas_signed_out_notice(text: str) -> dict[str, object]:
+    """The notice token for a KAS signed-out sentence, so the dashboard translates it.
+
+    Empty for any other sentence: that row keeps its English.
+    """
+    from kiro_crew.agent_sdk.host_auth import is_kas_signed_out
+    from kiro_crew.dashboard import gateway_notice as gn
+
+    if not is_kas_signed_out(text):
+        return {}
+    return gn.gateway_notice_meta(gn.GATEWAY_NOTICE_KAS_SIGNED_OUT)
 
 
 async def _recovery_delay(secs: float) -> None:
